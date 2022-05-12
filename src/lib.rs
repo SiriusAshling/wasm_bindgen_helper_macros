@@ -42,6 +42,7 @@ macro_rules! ts_enum {
                 function reinterpret(thing) {\
                     return thing;\
                 }\
+                module.exports = { reinterpret }\
             ")]
             extern "C" {
                 #[wasm_bindgen(typescript_type = $return_ty)]
@@ -192,6 +193,7 @@ macro_rules! wrapper_list {
                         items.push(item);\
                     }\
                 }\
+                module.exports = { toArray }\
             ")]
             extern "C" {
                 #[wasm_bindgen(typescript_type = $return_ty)]
@@ -277,6 +279,7 @@ macro_rules! wrapper_map {
                         object[key] = value;\
                     }\
                 }\
+                module.exports = { toObject }\
             ")]
             extern "C" {
                 #[wasm_bindgen(typescript_type = $return_ty)]
