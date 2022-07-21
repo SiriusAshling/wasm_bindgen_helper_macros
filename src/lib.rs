@@ -100,6 +100,7 @@ macro_rules! wrapper_type {
     }
 }
 
+/// Used internally for [`wrapper_list!`] and [`wrapper_map!`]
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __listlike {
@@ -294,4 +295,77 @@ macro_rules! wrapper_map {
             }
         }
     }
+}
+
+/// Used internally for [`wrapper_enum!`]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __wrapper_enum_matcher {
+    ($wasm_type:ident, $wrapped_type:ident, $variant:ident -> $($body:tt)*) => {
+        fn from(wrapped: $wrapped_type) -> $wasm_type {
+            match wrapped {
+                $($body)*
+                $wrapped_type::$variant => $wasm_type::$variant,
+            }
+        }
+    };
+    ($wasm_type:ident, $wrapped_type:ident, $variant:ident, $($more:ident),+ -> $($body:tt)*) => {
+        __wrapper_enum_matcher!($wasm_type, $wrapped_type, $($more),+ -> $($body)* $wrapped_type::$variant => $wasm_type::$variant,);
+    };
+}
+
+/// Wrap an existing Rust enum (e.g. from another crate) into a new type that you can `wasm_bindgen`
+/// 
+/// This will generate an `impl From<WasmType> for RustType` as well as a `WasmType::into_js_enum`
+/// The generated typescript file will contain an enum definition for the defined variants
+/// 
+/// # Examples
+/// 
+/// ```
+/// # mod module {
+/// # use wasm_bindgen_util_macros::wrapper_enum;
+/// use wasm_bindgen::prelude::*;
+/// 
+/// wrapper_enum! {
+///     #[wasm_bindgen]
+///     #[derive(Clone, Copy)]
+///     #[doc = " Documentation for the generated typescript file"]
+///     pub enum ErrorKind {
+///         NotFound,
+///         PermissionDenied,
+///         AlreadyExists,
+///     }
+///     mod error_kind { typescript_type = "ErrorKind" }
+///     impl From<std::io::ErrorKind>
+/// }
+/// 
+/// #[wasm_bindgen]
+/// /// This will return a value of the typescript enum `ErrorKind`
+/// pub fn error_kind() -> error_kind::ReturnEnum {
+///     let error = ErrorKind::from(std::io::ErrorKind::PermissionDenied);
+///     error.into_js_enum()
+/// }
+/// # }
+/// ```
+#[macro_export(local_inner_macros)]
+macro_rules! wrapper_enum {
+    (
+        $(#[$attributes:meta])*
+        pub enum $wasm_type:ident {
+            $($variants:ident),*$(,)?
+        }
+        mod $mod_name:ident { typescript_type = $return_ty:literal }
+        impl From<$wrapped_type:ident>
+    ) => {
+        ts_enum! {
+            $(#[$attributes])*
+            pub enum $wasm_type {
+                $($variants),*
+            }
+            mod $mod_name { typescript_type = $return_ty }
+        }
+        impl From<$wrapped_type> for $wasm_type {
+            __wrapper_enum_matcher!($wasm_type, $wrapped_type, $($variants),* ->);
+        }
+    };
 }
