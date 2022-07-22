@@ -6,5 +6,12 @@ edition = "2021"
 repository = "https://github.com/SiriusAshling/wasm_bindgen_helper_macros"
 license = "MIT"
 
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = "1.0"
+quote = "1.0"
+
 [dev-dependencies]
 wasm-bindgen = "0.2"

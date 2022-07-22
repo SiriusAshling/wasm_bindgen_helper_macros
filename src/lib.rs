@@ -1,133 +1,13 @@
-/// Define a Rust enum with `wasm_bindgen` that allows you to return the corresponding type in typescript definitions
-/// 
-/// This will generate a `RustType::into_js_enum`
-/// 
-/// # Examples
-/// 
-/// ```
-/// # mod module {
-/// # use wasm_bindgen_util_macros::ts_enum;
-/// use wasm_bindgen::prelude::*;
-/// 
-/// ts_enum! {
-///     #[wasm_bindgen]
-///     #[derive(Clone, Copy)]
-///     #[doc = " Documentation for the generated typescript file"]
-///     pub enum Colour {
-///         Green,
-///         Blue,
-///     }
-///     mod colour { typescript_type = "Colour" }
-/// }
-/// 
-/// #[wasm_bindgen]
-/// pub fn the_better_colour() -> colour::ReturnEnum {
-///     Colour::Green.into_js_enum()
-/// }
-/// # }
-/// ```
-#[macro_export]
-macro_rules! ts_enum {
-    (
-        $(#[$attributes:meta])*
-        pub enum $wasm_type:ident $body:tt
-        mod $mod_name:ident { typescript_type = $return_ty:literal }
-    ) => {
-        $(#[$attributes])*
-        pub enum $wasm_type $body
-        mod $mod_name {
-            use super::$wasm_type;
-            use wasm_bindgen::prelude::wasm_bindgen;
-            #[wasm_bindgen(inline_js = "\
-                function reinterpret(thing) {\
-                    return thing;\
-                }\
-                module.exports = { reinterpret }\
-            ")]
-            extern "C" {
-                #[wasm_bindgen(typescript_type = $return_ty)]
-                pub type ReturnEnum;
-                pub(crate) fn reinterpret(thing: u32) -> ReturnEnum;
-            }
-            impl $wasm_type {
-                pub(crate) fn into_js_enum(self) -> ReturnEnum {
-                    reinterpret(self as u32)
-                }
-            }
-        }
-    }
-}
+mod wrapper_list;
+mod wrapper_map;
+mod ts_enum;
 
-/// Wrap a Rust type into a new type that you can `wasm_bindgen`
-/// 
-/// This will generate an `impl From<WasmType> for RustType`
-/// 
-/// # Examples
-/// 
-/// ```
-/// # use wasm_bindgen_util_macros::wrapper_type;
-/// use wasm_bindgen::prelude::*;
-/// 
-/// wrapper_type! {
-///     #[wasm_bindgen]
-///     #[doc = " Documentation for the generated typescript file"]
-///     pub struct PairOfNumbers {
-///         inner: (u8, u8),
-///     }
-/// }
-/// 
-/// let pair = PairOfNumbers::from((6, 9));
-/// 
-/// assert_eq!(pair.inner, (6, 9))
-/// ```
-#[macro_export]
-macro_rules! wrapper_type {
-    (
-        $(#[$attribute:meta])*
-        pub struct $wasm_type:ident {
-            $field:ident: $wrapped_type:ty,
-        }
-    ) => {
-        $(#[$attribute])*
-        pub struct $wasm_type {
-            $field: $wrapped_type,
-        }
-        impl From<$wrapped_type> for $wasm_type {
-            fn from($field: $wrapped_type) -> $wasm_type {
-                $wasm_type { $field }
-            }
-        }
-    }
-}
+mod listlike;
+mod util;
+pub(crate) use util::*;
 
-/// Used internally for [`wrapper_list!`] and [`wrapper_map!`]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __listlike {
-    (
-        $(#[$attributes:meta])*
-        pub struct $wasm_type:ident {
-            $field:ident: ::std::vec::IntoIter<$wrapped_type:ty>$(,)?
-        }
-    ) => {
-        $(#[$attributes])*
-        pub struct $wasm_type {
-            $field: ::std::vec::IntoIter<$wrapped_type>
-        }
-        impl ::std::convert::From<::std::vec::Vec<$wrapped_type>> for $wasm_type {
-            fn from($field: ::std::vec::Vec<$wrapped_type>) -> $wasm_type {
-                $wasm_type { $field: $field.into_iter() }
-            }
-        }
-        #[wasm_bindgen]
-        impl $wasm_type {
-            #[allow(clippy::should_implement_trait)]
-            pub fn next(&mut self) -> ::std::option::Option<$wrapped_type> {
-                self.$field.next()
-            }
-        }
-    }
-}
+use proc_macro::TokenStream;
+
 /// Wrap a Rust `Vec` into a new type that you can `wasm_bindgen`
 /// 
 /// This will generate an `impl From<WasmType> for RustType` as well as a `WasmType::into_js_array`
@@ -135,17 +15,14 @@ macro_rules! __listlike {
 /// # Examples
 /// 
 /// ```
-/// # mod module {
-/// # use wasm_bindgen_util_macros::wrapper_type;
-/// # use wasm_bindgen_util_macros::wrapper_list;
+/// # use wasm_bindgen_helper_macros::wrapper_list;
 /// use wasm_bindgen::prelude::*;
 /// 
-/// wrapper_type! {
-///     #[wasm_bindgen]
-///     #[doc = " Documentation for the generated typescript file"]
-///     pub struct PairOfNumbers {
-///         inner: (u8, u8),
-///     }
+/// #[wasm_bindgen]
+/// /// Documentation for the generated typescript file
+/// pub struct PairOfNumbers {
+///     pub left: u8,
+///     pub right: u8,
 /// }
 /// 
 /// wrapper_list! {
@@ -153,63 +30,24 @@ macro_rules! __listlike {
 ///     pub struct ListOfPairs {
 ///         inner: std::vec::IntoIter<PairOfNumbers>,
 ///     }
-///     mod list_of_pairs { typescript_type = "PairOfNumbers[]" }
 /// }
 /// 
 /// #[wasm_bindgen]
 /// /// This will return a javascript array typed `PairOfNumbers[]`
-/// pub fn returns_an_array() -> list_of_pairs::ReturnArray {
-///     let list = ListOfPairs::from(vec![(6, 9).into(), (4, 2).into()]);
+/// pub fn returns_an_array() -> PairOfNumbersArray {
+///     let list = ListOfPairs::from(vec![
+///         PairOfNumbers { left: 1, right: 2 },
+///         PairOfNumbers { left: 4, right: 2 },
+///     ]);
 ///     list.into_js_array()
 /// }
-/// # }
 /// ```
-#[macro_export(local_inner_macros)]
-macro_rules! wrapper_list {
-    (
-        $(#[$attributes:meta])*
-        pub struct $wasm_type:ident {
-            $field:ident: $($($(::)?std::)?vec::)?IntoIter<$wrapped_type:ty>$(,)?
-        }
-        mod $mod_name:ident { typescript_type = $return_ty:literal }
-    ) => {
-        __listlike! {
-            #[doc = " Used internally to construct arrays"]
-            $(#[$attributes])*
-            pub struct $wasm_type {
-                $field: ::std::vec::IntoIter<$wrapped_type>
-            }
-        }
-        mod $mod_name {
-            use super::$wasm_type;
-            use wasm_bindgen::prelude::wasm_bindgen;
-            #[wasm_bindgen(inline_js = "\
-                function toArray(wasmList) {\
-                    const items = [];\
-                    while (true) {\
-                        const item = wasmList.next();\
-                        if (item === undefined) {\
-                            return items;\
-                        }\
-                        items.push(item);\
-                    }\
-                }\
-                module.exports = { toArray }\
-            ")]
-            extern "C" {
-                #[wasm_bindgen(typescript_type = $return_ty)]
-                pub type ReturnArray;
-
-                pub(crate) fn toArray(list: $wasm_type) -> ReturnArray;
-            }
-            impl $wasm_type {
-                pub(crate) fn into_js_array(self) -> ReturnArray {
-                    toArray(self)
-                }
-            }
-        }
-    }
+#[proc_macro]
+pub fn wrapper_list(input: TokenStream) -> TokenStream {
+    let ast = syn::parse_macro_input!(input);
+    wrapper_list::wrapper_list_impl(ast)
 }
+
 /// Wrap a Rust `Vec` into a new type that you can `wasm_bindgen`
 /// 
 /// This will generate an `impl From<WasmType> for RustType` as well as a `WasmType::into_js_object`
@@ -217,12 +55,11 @@ macro_rules! wrapper_list {
 /// # Examples
 /// 
 /// ```
-/// # mod module {
-/// # use wasm_bindgen_util_macros::wrapper_map;
+/// # use wasm_bindgen_helper_macros::wrapper_map;
 /// use wasm_bindgen::prelude::*;
 /// 
 /// #[wasm_bindgen]
-/// #[doc = " Documentation for the generated typescript file"]
+/// /// Documentation for the generated typescript file
 /// pub struct LetterNumber {
 ///     #[wasm_bindgen(getter_with_clone)]
 ///     pub letter: String,
@@ -231,141 +68,55 @@ macro_rules! wrapper_list {
 /// 
 /// wrapper_map! {
 ///     #[wasm_bindgen]
-///     #[doc = " Documentation for the generated typescript file"]
+///     /// Documentation for the generated typescript file
 ///     pub struct LettersToNumbers {
 ///         inner: std::vec::IntoIter<LetterNumber>,
 ///     }
-///     mod letters_to_numbers { typescript_type = "{[letter: string]: number}" }
 /// }
 /// 
 /// #[wasm_bindgen]
 /// /// This will return a javacsript object typed `{[letter: string]: number}`
-/// pub fn returns_an_object() -> letters_to_numbers::ReturnObject {
+/// pub fn returns_an_object() -> LetterNumberObject {
 ///     let a = LetterNumber { letter: "a".to_string(), number: 8 };
 ///     let b = LetterNumber { letter: "b".to_string(), number: 4 };
 ///     let list = LettersToNumbers::from(vec![a, b]);
 ///     let key_property = "letter";
 ///     list.into_js_object(key_property)
 /// }
-/// # }
 /// ```
-#[macro_export(local_inner_macros)]
-macro_rules! wrapper_map {
-    (
-        $(#[$attributes:meta])*
-        pub struct $wasm_type:ident {
-            $field:ident: $($($(::)?std::)?vec::)?IntoIter<$wrapped_type:ty>$(,)?
-        }
-        mod $mod_name:ident { typescript_type = $return_ty:literal }
-    ) => {
-        __listlike! {
-            #[doc = " Used internally to construct objects"]
-            $(#[$attributes])*
-            pub struct $wasm_type {
-                $field: ::std::vec::IntoIter<$wrapped_type>
-            }
-        }
-        mod $mod_name {
-            use super::$wasm_type;
-            use wasm_bindgen::prelude::wasm_bindgen;
-            #[wasm_bindgen(inline_js = "\
-                function toObject(wasmMap, keyProperty) {\
-                    const object = {};\
-                    while (true) {\
-                        const value = wasmMap.next();\
-                        if (value === undefined) {\
-                            return object;\
-                        }\
-                        const key = value[keyProperty];\
-                        object[key] = value;\
-                    }\
-                }\
-                module.exports = { toObject }\
-            ")]
-            extern "C" {
-                #[wasm_bindgen(typescript_type = $return_ty)]
-                pub type ReturnObject;
-
-                pub(crate) fn toObject(list: $wasm_type, key_property: &str) -> ReturnObject;
-            }
-            impl $wasm_type {
-                pub(crate) fn into_js_object(self, key_property: &str) -> ReturnObject {
-                    toObject(self, key_property)
-                }
-            }
-        }
-    }
+#[proc_macro]
+pub fn wrapper_map(input: TokenStream) -> TokenStream {
+    let ast = syn::parse_macro_input!(input);
+    wrapper_map::wrapper_map_impl(ast)
 }
 
-/// Used internally for [`wrapper_enum!`]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __wrapper_enum_matcher {
-    ($wasm_type:ident, $wrapped_type:ident, $variant:ident -> $($body:tt)*) => {
-        fn from(wrapped: $wrapped_type) -> $wasm_type {
-            match wrapped {
-                $($body)*
-                $wrapped_type::$variant => $wasm_type::$variant,
-            }
-        }
-    };
-    ($wasm_type:ident, $wrapped_type:ident, $variant:ident, $($more:ident),+ -> $($body:tt)*) => {
-        __wrapper_enum_matcher!($wasm_type, $wrapped_type, $($more),+ -> $($body)* $wrapped_type::$variant => $wasm_type::$variant,);
-    };
-}
-
-/// Wrap an existing Rust enum (e.g. from another crate) into a new type that you can `wasm_bindgen`
+/// Define a Rust enum with `wasm_bindgen` that allows you to return the corresponding type in typescript definitions
 /// 
-/// This will generate an `impl From<WasmType> for RustType` as well as a `WasmType::into_js_enum`
-/// The generated typescript file will contain an enum definition for the defined variants
+/// This will generate a `RustType::into_js_enum`
 /// 
 /// # Examples
 /// 
 /// ```
-/// # mod module {
-/// # use wasm_bindgen_util_macros::wrapper_enum;
+/// # use wasm_bindgen_helper_macros::ts_enum;
 /// use wasm_bindgen::prelude::*;
 /// 
-/// wrapper_enum! {
+/// ts_enum! {
 ///     #[wasm_bindgen]
 ///     #[derive(Clone, Copy)]
-///     #[doc = " Documentation for the generated typescript file"]
-///     pub enum ErrorKind {
-///         NotFound,
-///         PermissionDenied,
-///         AlreadyExists,
+///     /// Documentation for the generated typescript file
+///     pub enum Colour {
+///         Green,
+///         Blue,
 ///     }
-///     mod error_kind { typescript_type = "ErrorKind" }
-///     impl From<std::io::ErrorKind>
 /// }
 /// 
 /// #[wasm_bindgen]
-/// /// This will return a value of the typescript enum `ErrorKind`
-/// pub fn error_kind() -> error_kind::ReturnEnum {
-///     let error = ErrorKind::from(std::io::ErrorKind::PermissionDenied);
-///     error.into_js_enum()
+/// pub fn the_better_colour() -> ColourEnum {
+///     Colour::Green.into_js_enum()
 /// }
-/// # }
 /// ```
-#[macro_export(local_inner_macros)]
-macro_rules! wrapper_enum {
-    (
-        $(#[$attributes:meta])*
-        pub enum $wasm_type:ident {
-            $($variants:ident),*$(,)?
-        }
-        mod $mod_name:ident { typescript_type = $return_ty:literal }
-        impl From<$wrapped_type:ident>
-    ) => {
-        ts_enum! {
-            $(#[$attributes])*
-            pub enum $wasm_type {
-                $($variants),*
-            }
-            mod $mod_name { typescript_type = $return_ty }
-        }
-        impl From<$wrapped_type> for $wasm_type {
-            __wrapper_enum_matcher!($wasm_type, $wrapped_type, $($variants),* ->);
-        }
-    };
+#[proc_macro]
+pub fn ts_enum(input: TokenStream) -> TokenStream {
+    let ast = syn::parse_macro_input!(input);
+    ts_enum::ts_enum_impl(ast)
 }
