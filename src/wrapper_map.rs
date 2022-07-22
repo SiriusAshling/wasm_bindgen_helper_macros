@@ -11,8 +11,8 @@ pub fn wrapper_map_impl(input: syn::DeriveInput) -> TokenStream {
         function {js_ident}(wasmMap, keyProperty) {{\
             const object = {{}};\
             while (true) {{\
-                const value  = wasmList.next();\
-                if (value  === undefined) {{\
+                const value = wasmMap.next();\
+                if (value === undefined) {{\
                     return object;\
                 }}\
                 const key = value[keyProperty];\
